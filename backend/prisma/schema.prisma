@@ -1,0 +1,146 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(PATIENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Patient-specific fields
+  patientAppointments Appointment[] @relation("PatientAppointments")
+  patientInfo         PatientInfo?
+
+  // Doctor-specific fields
+  doctorAppointments Appointment[] @relation("DoctorAppointments")
+  doctorInfo         DoctorInfo?
+
+  // Audit logs
+  auditLogs AuditLog[]
+}
+
+model PatientInfo {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @unique @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age            Int?
+  medicalHistory String?   @db.String // Encrypted
+  allergies      String?   @db.String // Encrypted
+  medications    String?   @db.String // Encrypted
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model DoctorInfo {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @unique @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  specialty     String
+  licenseNumber String   @unique
+  available     Boolean  @default(true)
+  bio           String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Appointment {
+  id        String            @id @default(auto()) @map("_id") @db.ObjectId
+  patientId String            @db.ObjectId
+  patient   User              @relation("PatientAppointments", fields: [patientId], references: [id])
+  doctorId  String            @db.ObjectId
+  doctor    User              @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  
+  symptoms      String         @db.String // Encrypted
+  healthConcern String         @db.String // Encrypted
+  specialty     String
+  status        AppointmentStatus @default(PENDING)
+  roomId        String         @unique
+  scheduledAt   DateTime       @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  payment      Payment?
+  chatMessages ChatMessage[]
+  transcript   Transcript?
+}
+
+model Payment {
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId String        @unique @db.ObjectId
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  
+  amount          Float
+  currency        String        @default("USD")
+  status          PaymentStatus @default(PENDING)
+  squarePaymentId String?       @unique
+  squareReceiptUrl String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model ChatMessage {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId String      @db.ObjectId
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  
+  sender    String
+  content   String    @db.String // Encrypted
+  timestamp DateTime  @default(now())
+}
+
+model Transcript {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId String      @unique @db.ObjectId
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  
+  content   String   @db.String // Encrypted full transcript
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  
+  action      String
+  resource    String
+  details     String?
+  ipAddress   String?
+  timestamp   DateTime @default(now())
+}
