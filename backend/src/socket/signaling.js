@@ -20,22 +20,40 @@ export const initializeSignalingServer = (httpServer) => {
   // Authentication middleware
   io.use(async (socket, next) => {
     try {
+      console.log('🔐 Socket connection attempt:', {
+        socketId: socket.id,
+        handshake: {
+          address: socket.handshake.address,
+          headers: socket.handshake.headers.origin,
+        }
+      });
+
       const token = socket.handshake.auth.token;
 
       if (!token) {
-        return next(new Error('Authentication error'));
+        console.error('❌ No token provided in socket handshake');
+        return next(new Error('No authentication token provided'));
       }
 
       const decoded = verifyToken(token);
       socket.data.user = decoded;
+      console.log('✅ Socket authenticated for user:', decoded.name, decoded.role);
       next();
     } catch (error) {
-      next(new Error('Authentication error'));
+      console.error('❌ Socket authentication error:', error.message);
+      next(new Error('Authentication token invalid: ' + error.message));
     }
   });
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+    console.log('✅ CLIENT CONNECTED:', socket.id);
+    console.log('   User:', socket.data.user?.name, '(', socket.data.user?.role, ')');
+    console.log('   From:', socket.handshake.address);
+
+    // Error handler
+    socket.on('error', (error) => {
+      console.error('❌ Socket error for', socket.id, ':', error);
+    });
 
     // Join room
     socket.on('join-room', async ({ roomId }) => {
@@ -248,8 +266,11 @@ export const initializeSignalingServer = (httpServer) => {
     });
 
     // Disconnect
-    socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
+    socket.on('disconnect', (reason) => {
+      console.log('❌ CLIENT DISCONNECTED:', socket.id);
+      console.log('   User:', socket.data.user?.name);
+      console.log('   Reason:', reason);
+      console.log('   Room:', socket.data.roomId);
       
       if (socket.data.roomId) {
         socket.to(socket.data.roomId).emit('user-left', {
