@@ -36,31 +36,41 @@ export const initializeSignalingServer = (httpServer) => {
 
     // Join room
     socket.on('join-room', async ({ roomId }) => {
-      console.log(`User ${socket.data.user.userId} joining room ${roomId}`);
+      console.log(`👤 User ${socket.data.user.userId} (${socket.id}) joining room ${roomId}`);
+      
+      // Get existing users in room
+      const socketsInRoom = await io.in(roomId).fetchSockets();
+      console.log(`📊 Room ${roomId} currently has ${socketsInRoom.length} users`);
       
       socket.join(roomId);
       socket.data.roomId = roomId;
 
-      // Notify others in the room
+      // Notify others in the room that new user joined
       socket.to(roomId).emit('user-joined', {
         userId: socket.data.user.userId,
         userName: socket.data.user.name,
+        socketId: socket.id,
       });
+      
+      console.log(`✅ User ${socket.data.user.userId} joined room ${roomId} successfully`);
     });
 
     // WebRTC signaling: offer
     socket.on('offer', ({ roomId, offer }) => {
-      socket.to(roomId).emit('offer', offer);
+      console.log(`📤 Forwarding offer from ${socket.id} to room ${roomId}`);
+      socket.to(roomId).emit('offer', { offer });
     });
 
     // WebRTC signaling: answer
     socket.on('answer', ({ roomId, answer }) => {
-      socket.to(roomId).emit('answer', answer);
+      console.log(`📤 Forwarding answer from ${socket.id} to room ${roomId}`);
+      socket.to(roomId).emit('answer', { answer });
     });
 
     // WebRTC signaling: ICE candidate
     socket.on('ice-candidate', ({ roomId, candidate }) => {
-      socket.to(roomId).emit('ice-candidate', candidate);
+      console.log(`📤 Forwarding ICE candidate from ${socket.id} to room ${roomId}`);
+      socket.to(roomId).emit('ice-candidate', { candidate });
     });
 
     // Chat message

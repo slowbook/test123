@@ -17,6 +17,7 @@ const ConsultationRoom = () => {
   const [mediaReady, setMediaReady] = useState(false)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [micEnabled, setMicEnabled] = useState(false)
+  const [peerConnectionState, setPeerConnectionState] = useState('none')
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
@@ -49,25 +50,31 @@ const ConsultationRoom = () => {
     })
 
     newSocket.on('connect', () => {
-      console.log('Connected to signaling server')
+      console.log('✅ Connected to signaling server, Socket ID:', newSocket.id)
       setIsConnected(true)
+      console.log('📢 Joining room:', roomId)
       newSocket.emit('join-room', { roomId })
     })
 
-    newSocket.on('user-joined', async () => {
+    newSocket.on('user-joined', async (data) => {
+      console.log('👤 User joined room:', data)
+      console.log('🤝 Creating offer for new user...')
       await createOffer()
     })
 
-    newSocket.on('offer', async (offer) => {
-      await handleOffer(offer)
+    newSocket.on('offer', async (data) => {
+      console.log('📨 Received offer:', data)
+      await handleOffer(data.offer || data)
     })
 
-    newSocket.on('answer', async (answer) => {
-      await handleAnswer(answer)
+    newSocket.on('answer', async (data) => {
+      console.log('📨 Received answer:', data)
+      await handleAnswer(data.answer || data)
     })
 
-    newSocket.on('ice-candidate', async (candidate) => {
-      await handleIceCandidate(candidate)
+    newSocket.on('ice-candidate', async (data) => {
+      console.log('📨 Received ICE candidate:', data)
+      await handleIceCandidate(data.candidate || data)
     })
 
     newSocket.on('chat-message', (message) => {
@@ -280,28 +287,52 @@ const ConsultationRoom = () => {
 
   const createPeerConnection = () => {
     const configuration = {
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
     }
 
+    console.log('🔗 Creating peer connection...')
     const pc = new RTCPeerConnection(configuration)
 
     localStreamRef.current?.getTracks().forEach((track) => {
+      console.log('➕ Adding local track:', track.kind)
       pc.addTrack(track, localStreamRef.current)
     })
 
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
+        console.log('📡 Sending ICE candidate')
         socket.emit('ice-candidate', { roomId, candidate: event.candidate })
       }
     }
 
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current) {
+      console.log('📹 Received remote track:', event.track.kind)
+      console.log('Remote streams:', event.streams)
+      if (remoteVideoRef.current && event.streams[0]) {
+        console.log('✅ Setting remote video stream')
         remoteVideoRef.current.srcObject = event.streams[0]
+        
+        // Play the video
+        remoteVideoRef.current.play().catch(e => {
+          console.error('Error playing remote video:', e)
+        })
       }
     }
 
+    pc.onconnectionstatechange = () => {
+      console.log('🔗 Connection state:', pc.connectionState)
+      setPeerConnectionState(pc.connectionState)
+    }
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('🧊 ICE connection state:', pc.iceConnectionState)
+    }
+
     peerConnectionRef.current = pc
+    console.log('✅ Peer connection created')
   }
 
   const createOffer = async () => {
@@ -317,12 +348,27 @@ const ConsultationRoom = () => {
   }
 
   const handleOffer = async (offer) => {
+    console.log('🎯 Handling offer...')
+    
+    // Create peer connection if it doesn't exist
+    if (!peerConnectionRef.current) {
+      console.log('Creating peer connection to handle offer')
+      createPeerConnection()
+    }
+    
     if (!peerConnectionRef.current || !socket) return
 
     try {
+      console.log('Setting remote description from offer')
       await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer))
+      
+      console.log('Creating answer')
       const answer = await peerConnectionRef.current.createAnswer()
+      
+      console.log('Setting local description')
       await peerConnectionRef.current.setLocalDescription(answer)
+      
+      console.log('📤 Sending answer')
       socket.emit('answer', { roomId, answer })
     } catch (error) {
       console.error('Failed to handle offer', error)
@@ -381,6 +427,10 @@ const ConsultationRoom = () => {
           <div className="flex items-center space-x-2">
             <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
             <span className="text-sm">{isConnected ? 'Connected' : 'Disconnected'}</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${peerConnectionState === 'connected' ? 'bg-green-500' : 'bg-yellow-500'}`} />
+            <span className="text-sm">P2P: {peerConnectionState}</span>
           </div>
         </div>
       </div>
