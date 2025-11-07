@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { verifyToken } from '../utils/jwt.js';
 import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from '../utils/encryption.js';
+import { transcriptionService } from '../services/transcription.js';
 
 const prisma = new PrismaClient();
 
@@ -131,10 +132,59 @@ export const initializeSignalingServer = (httpServer) => {
       }
     });
 
-    // Audio stream for transcription
-    socket.on('audio-stream', async (audioData) => {
-      // Forward to Deepgram service
-      console.log('Received audio stream data');
+    // Audio stream for transcription (Real-time with Deepgram)
+    socket.on('start-transcription', async ({ roomId }) => {
+      console.log(`[Transcription] Starting for room: ${roomId}`);
+      
+      const connection = await transcriptionService.startLiveTranscription(
+        roomId,
+        (transcriptData) => {
+          // Send transcript to all users in room
+          io.to(roomId).emit('live-caption', {
+            text: transcriptData.text,
+            isFinal: transcriptData.isFinal,
+            speaker: transcriptData.speaker,
+            timestamp: transcriptData.timestamp
+          });
+          
+          // Save final transcripts to database
+          if (transcriptData.isFinal) {
+            saveTranscriptToDatabase(roomId, transcriptData.text);
+          }
+        },
+        (error) => {
+          console.error('[Transcription] Error:', error);
+          socket.emit('transcription-error', { message: error.message });
+        }
+      );
+      
+      if (connection) {
+        socket.emit('transcription-started', { roomId });
+      }
+    });
+    
+    // Audio stream data chunks
+    socket.on('audio-chunk', async ({ roomId, audioData }) => {
+      // Send audio chunk to Deepgram for real-time transcription
+      if (transcriptionService.isTranscribing(roomId)) {
+        try {
+          // Convert base64 to buffer if needed
+          const audioBuffer = Buffer.isBuffer(audioData) 
+            ? audioData 
+            : Buffer.from(audioData, 'base64');
+          
+          transcriptionService.sendAudioChunk(roomId, audioBuffer);
+        } catch (error) {
+          console.error('[Audio] Failed to send chunk:', error);
+        }
+      }
+    });
+    
+    // Stop transcription
+    socket.on('stop-transcription', ({ roomId }) => {
+      console.log(`[Transcription] Stopping for room: ${roomId}`);
+      transcriptionService.stopLiveTranscription(roomId);
+      socket.emit('transcription-stopped', { roomId });
     });
 
     // Leave room
@@ -154,8 +204,45 @@ export const initializeSignalingServer = (httpServer) => {
         socket.to(socket.data.roomId).emit('user-left', {
           userId: socket.data.user?.userId,
         });
+        
+        // Stop transcription for this room if last user
+        transcriptionService.stopLiveTranscription(socket.data.roomId);
       }
     });
+  });
+
+  // Helper function to save transcript to database
+  async function saveTranscriptToDatabase(appointmentId, text) {
+    try {
+      let transcript = await prisma.transcript.findUnique({
+        where: { appointmentId: appointmentId }
+      });
+
+      if (transcript) {
+        const existingText = decrypt(transcript.content);
+        const updatedText = existingText + '\n' + text;
+        
+        await prisma.transcript.update({
+          where: { id: transcript.id },
+          data: { content: encrypt(updatedText) }
+        });
+      } else {
+        await prisma.transcript.create({
+          data: {
+            appointmentId: appointmentId,
+            content: encrypt(text)
+          }
+        });
+      }
+    } catch (error) {
+      console.error('[Database] Transcript save error:', error);
+    }
+  }
+
+  // Cleanup on server shutdown
+  process.on('SIGTERM', () => {
+    console.log('[Server] SIGTERM received, cleaning up transcription services');
+    transcriptionService.cleanup();
   });
 
   return io;
