@@ -9,9 +9,12 @@ const prisma = new PrismaClient();
 export const initializeSignalingServer = (httpServer) => {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin: '*', // Allow all origins for development (change in production!)
       credentials: true,
+      methods: ['GET', 'POST'],
     },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
   });
 
   // Authentication middleware

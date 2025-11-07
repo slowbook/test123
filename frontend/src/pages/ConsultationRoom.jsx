@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import { useAuth } from '../context/AuthContext'
+import { getSocketUrl } from '../utils/api'
 
 const ConsultationRoom = () => {
   const { roomId } = useParams()
@@ -49,16 +50,41 @@ const ConsultationRoom = () => {
   }, [messages, roomId])
 
   useEffect(() => {
-    // Initialize socket connection
-    const newSocket = io(import.meta.env.VITE_SOCKET_URL, {
+    // Initialize socket connection with dynamic URL detection
+    const socketURL = getSocketUrl();
+    console.log('🌐 Connecting to Socket.io server:', socketURL);
+
+    const newSocket = io(socketURL, {
       auth: { token: localStorage.getItem('token') },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 10,
+      transports: ['websocket', 'polling'],
     })
 
     newSocket.on('connect', () => {
       console.log('✅ Connected to signaling server, Socket ID:', newSocket.id)
       setIsConnected(true)
-      console.log('� JOINING ROOM:', roomId, 'Type:', typeof roomId, 'Length:', roomId?.length)
+      console.log('🚪 JOINING ROOM:', roomId, 'Type:', typeof roomId, 'Length:', roomId?.length)
       console.log('👤 As user:', user?.name, 'Role:', user?.role)
+      newSocket.emit('join-room', { roomId })
+    })
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('❌ Socket disconnected:', reason)
+      setIsConnected(false)
+      setPeerConnectionState('disconnected')
+    })
+
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error.message)
+      setIsConnected(false)
+    })
+
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('🔄 Socket reconnected after', attemptNumber, 'attempts')
+      setIsConnected(true)
+      // Rejoin room after reconnection
       newSocket.emit('join-room', { roomId })
     })
 

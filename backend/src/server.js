@@ -59,11 +59,13 @@ app.use((req, res) => {
 initializeSignalingServer(httpServer);
 
 // Start server
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Server running on port ${PORT}`);
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Local: http://localhost:${PORT}`);
+  console.log(`🌐 Network: http://192.168.1.122:${PORT}`);
   console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-  console.log(`\n✅ Server is ready to accept connections\n`);
+  console.log(`\n✅ Server is ready to accept connections from any network interface\n`);
 });
 
 // Graceful shutdown
