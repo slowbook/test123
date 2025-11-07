@@ -6,6 +6,11 @@ import { useAuth } from '../context/AuthContext'
 const ConsultationRoom = () => {
   const { roomId } = useParams()
   const { user } = useAuth()
+  
+  // 🔍 CRITICAL DEBUG: Log roomId immediately
+  console.log('🚪 ConsultationRoom mounted with roomId:', roomId)
+  console.log('👤 User:', user?.name, 'Role:', user?.role, 'ID:', user?.id)
+  
   const [socket, setSocket] = useState(null)
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
@@ -52,7 +57,8 @@ const ConsultationRoom = () => {
     newSocket.on('connect', () => {
       console.log('✅ Connected to signaling server, Socket ID:', newSocket.id)
       setIsConnected(true)
-      console.log('📢 Joining room:', roomId)
+      console.log('� JOINING ROOM:', roomId, 'Type:', typeof roomId, 'Length:', roomId?.length)
+      console.log('👤 As user:', user?.name, 'Role:', user?.role)
       newSocket.emit('join-room', { roomId })
     })
 
@@ -78,10 +84,18 @@ const ConsultationRoom = () => {
     })
 
     newSocket.on('chat-message', (message) => {
+      console.log('📥 RECEIVED CHAT MESSAGE:');
+      console.log('   From:', message.sender);
+      console.log('   Content:', message.content);
+      console.log('   Timestamp:', message.timestamp);
+      console.log('   Current user:', user?.name);
+      
       setMessages((prev) => {
         const newMessages = [...prev, message]
         // Save to localStorage immediately
         localStorage.setItem(`chat_${roomId}`, JSON.stringify(newMessages))
+        console.log('   ✅ Message added to state and localStorage');
+        console.log('   Total messages now:', newMessages.length);
         return newMessages
       })
     })
@@ -396,7 +410,14 @@ const ConsultationRoom = () => {
   }
 
   const sendMessage = () => {
-    if (!newMessage.trim() || !socket) return
+    if (!newMessage.trim() || !socket) {
+      console.warn('⚠️ Cannot send message:', { 
+        hasMessage: !!newMessage.trim(), 
+        hasSocket: !!socket,
+        socketConnected: socket?.connected 
+      })
+      return
+    }
 
     const message = {
       id: Date.now().toString(),
@@ -404,6 +425,12 @@ const ConsultationRoom = () => {
       content: newMessage,
       timestamp: new Date().toISOString(),
     }
+
+    console.log('📤 SENDING CHAT MESSAGE:');
+    console.log('   Room ID:', roomId);
+    console.log('   Sender:', message.sender);
+    console.log('   Content:', message.content);
+    console.log('   Socket connected:', socket.connected);
 
     socket.emit('chat-message', { roomId, message })
     setMessages((prev) => {

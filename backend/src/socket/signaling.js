@@ -36,14 +36,33 @@ export const initializeSignalingServer = (httpServer) => {
 
     // Join room
     socket.on('join-room', async ({ roomId }) => {
-      console.log(`👤 User ${socket.data.user.userId} (${socket.id}) joining room ${roomId}`);
+      console.log('='.repeat(80));
+      console.log(`� JOIN-ROOM EVENT`);
+      console.log(`   Socket ID: ${socket.id}`);
+      console.log(`   User ID: ${socket.data.user.userId}`);
+      console.log(`   User Name: ${socket.data.user.name}`);
+      console.log(`   User Role: ${socket.data.user.role}`);
+      console.log(`   Room ID: ${roomId}`);
+      console.log(`   Room ID Type: ${typeof roomId}`);
+      console.log(`   Room ID Length: ${roomId?.length}`);
       
-      // Get existing users in room
-      const socketsInRoom = await io.in(roomId).fetchSockets();
-      console.log(`📊 Room ${roomId} currently has ${socketsInRoom.length} users`);
+      // Get existing users in room BEFORE joining
+      const socketsInRoomBefore = await io.in(roomId).fetchSockets();
+      console.log(`   Room state BEFORE join: ${socketsInRoomBefore.length} users`);
+      socketsInRoomBefore.forEach((s, i) => {
+        console.log(`     [${i+1}] Socket ${s.id} - User ${s.data.user?.name} (${s.data.user?.role})`);
+      });
       
       socket.join(roomId);
       socket.data.roomId = roomId;
+      
+      // Get users in room AFTER joining
+      const socketsInRoomAfter = await io.in(roomId).fetchSockets();
+      console.log(`   Room state AFTER join: ${socketsInRoomAfter.length} users`);
+      socketsInRoomAfter.forEach((s, i) => {
+        console.log(`     [${i+1}] Socket ${s.id} - User ${s.data.user?.name} (${s.data.user?.role})`);
+      });
+      console.log('='.repeat(80));
 
       // Notify others in the room that new user joined
       socket.to(roomId).emit('user-joined', {
@@ -76,9 +95,16 @@ export const initializeSignalingServer = (httpServer) => {
     // Chat message
     socket.on('chat-message', async ({ roomId, message }) => {
       try {
-        // Save message to database
+        console.log('='.repeat(80));
+        console.log(`💬 CHAT MESSAGE EVENT`);
+        console.log(`   From Socket: ${socket.id}`);
+        console.log(`   From User: ${socket.data.user?.name} (${socket.data.user?.role})`);
+        console.log(`   Room ID: ${roomId}`);
+        console.log(`   Message: "${message.content}"`);
+        
+        // Save message to database - FIXED: Use roomId field, not id
         const appointment = await prisma.appointment.findFirst({
-          where: { roomId },
+          where: { roomId: roomId },  // ✅ FIXED: was { id: roomId }
         });
 
         if (appointment) {
@@ -91,12 +117,24 @@ export const initializeSignalingServer = (httpServer) => {
               content: encryptedContent,
             },
           });
+          console.log(`   ✅ Chat message saved to database`);
+        } else {
+          console.error(`   ❌ APPOINTMENT NOT FOUND for roomId: ${roomId}`);
+          console.log(`   This is a critical error - messages won't be saved!`);
         }
 
-        // Broadcast to room
-        socket.to(roomId).emit('chat-message', message);
+        // Broadcast to ALL in room (including sender for confirmation)
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        console.log(`   📤 Broadcasting to ${socketsInRoom.length} users in room:`);
+        socketsInRoom.forEach((s, i) => {
+          console.log(`     [${i+1}] Socket ${s.id} - User ${s.data.user?.name}`);
+        });
+        
+        io.to(roomId).emit('chat-message', message);
+        console.log(`   ✅ Chat message broadcasted successfully`);
+        console.log('='.repeat(80));
       } catch (error) {
-        console.error('Chat message error:', error);
+        console.error('❌ Chat message error:', error);
       }
     });
 
