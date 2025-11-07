@@ -38,7 +38,7 @@ router.post('/register', async (req, res) => {
       role: user.role,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       token,
       user: {
         id: user.id,
@@ -49,7 +49,7 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ message: 'Registration failed', error: error.message });
+    return res.status(500).json({ message: 'Registration failed', error: error.message });
   }
 });
 
